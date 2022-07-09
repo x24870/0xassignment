@@ -118,11 +118,11 @@ func NewBlock(ethBlock *types.Block) BlockIntf {
 
 // GetBlocks ...
 func (b *block) GetBlocks(db *gorm.DB, n uint64) ([]BlockIntf, error) {
-	// Get block based on given number
+	// Get latest n blocks
 	blocks := []*block{}
-	// TODO: correct SQL query
 	err := db.Model(b).
-		Where("tg_name = ?", n).
+		Order("number").
+		Limit(n).
 		Find(&blocks).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
