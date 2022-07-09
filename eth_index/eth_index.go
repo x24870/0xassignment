@@ -2,7 +2,9 @@ package eth_index
 
 import (
 	"fmt"
+	"main/database"
 	"main/logging"
+	"main/models"
 	"math/big"
 	"sync"
 
@@ -21,7 +23,7 @@ var ethRootCtx context.Context
 // init loads the logging configurations.
 func init() {
 	// comfirmedBlock = config.GetUint("COMFIRMED_BLOCK")
-	comfirmedBlock = 5 //20
+	comfirmedBlock = 1 //20
 }
 
 // Initialize initializes the logger module.
@@ -76,24 +78,35 @@ func SyncLastestBlocks(ctx context.Context) {
 	if err != nil {
 		panic(err)
 	}
+	defer client.Close()
 
-	// get lastest N block number
+	// get lastest N block numbers
 	num, err := client.BlockNumber(ctx)
+	logging.Info(ctx, fmt.Sprintf("latest block num: %d", num))
 	if err != nil {
 		logging.Error(ctx, err.Error())
 	}
 
 	blockNums := make([]uint64, comfirmedBlock)
+	fmt.Println("blockNums: ", blockNums)
 	for i := uint64(0); i < comfirmedBlock; i++ {
-		blockNums = append(blockNums, num-i)
+		blockNums[i] = num - i
+		fmt.Println("i: ", i, "blockNums: ", blockNums)
 	}
 
-	// query latest N block parallel
+	// query latest N block parallelly
 	out := getBlocks(ctx, client, blockNums)
 
 	// sync to DB ...
+	// db := database.GetSQL()
+	db := database.GetSQL()
 	for block := range out {
 		fmt.Println(block.Header().Number, block.Header().Hash())
+		newBlock := models.NewBlock(block)
+		if err := newBlock.SetBlock(db); err != nil {
+			logging.Error(ctx, err.Error())
+		}
+
 	}
 }
 
