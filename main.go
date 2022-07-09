@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"main/config"
+	"main/database"
 	"main/eth_index"
 	"main/global"
 	"main/logging"
@@ -24,6 +25,10 @@ func main() {
 	// NOTE: This should always be first.
 	logging.Initialize(ctx)
 	defer logging.Finalize()
+
+	// Setup database module
+	database.Initialize(ctx)
+	defer database.Finalize()
 
 	// Setup etn_index module
 	eth_index.Initialize(ctx)
