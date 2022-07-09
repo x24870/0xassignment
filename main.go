@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"main/config"
+	"main/eth_index"
 	"main/global"
 	"main/logging"
 	"main/server"
@@ -23,6 +24,11 @@ func main() {
 	// NOTE: This should always be first.
 	logging.Initialize(ctx)
 	defer logging.Finalize()
+
+	// Setup etn_index module
+	eth_index.Initialize(ctx)
+	defer eth_index.Finalize()
+	eth_index.SyncLastestBlocks(ctx)
 
 	// Create HTTP server instance to listen on all interfaces.
 	address := fmt.Sprintf("%s:%s",
