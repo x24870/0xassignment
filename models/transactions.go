@@ -108,18 +108,18 @@ func (b *transaction) GetUpdatedAt() int64 {
 
 // NewTransaction
 func NewTransaction(t *types.Transaction, blockHash string) (TransactionIntf, error) {
-	msg, err := t.AsMessage(types.NewEIP155Signer(t.ChainId()), nil)
+	from, err := types.Sender(types.LatestSignerForChainID(t.ChainId()), t)
 	if err != nil {
 		return nil, err
 	}
 	newTransaction := transaction{
 		BlockHash: blockHash,
 		TxHash:    t.Hash().String(),
-		TxFrom:    msg.From().Hash().String(),
-		TxTo:      msg.To().String(),
-		Nounce:    msg.Nonce(),
-		Data:      msg.Data(),
-		Value:     msg.Value().String(),
+		TxFrom:    from.String(),
+		TxTo:      t.To().String(),
+		Nounce:    t.Nonce(),
+		Data:      t.Data(),
+		Value:     t.Value().String(),
 	}
 
 	return &newTransaction, nil

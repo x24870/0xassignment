@@ -2,6 +2,7 @@ package eth_index
 
 import (
 	"fmt"
+	"main/config"
 	"main/database"
 	"main/logging"
 	"main/models"
@@ -19,6 +20,7 @@ var comfirmedBlock uint64
 
 // eth index root context.
 var ethRootCtx context.Context
+var ethCancel context.CancelFunc
 
 // init loads the logging configurations.
 func init() {
@@ -28,13 +30,88 @@ func init() {
 
 // Initialize initializes the logger module.
 func Initialize(ctx context.Context) {
-	// Save database root context.
-	ethRootCtx = ctx
+	// init root context and cancel function
+	ethRootCtx, ethCancel = context.WithCancel(ctx)
 
-	// Setup timeout context for connecting to StackDriver.
-	// timeoutCtx, cancel := context.WithTimeout(ctx, gRPCConnectTimeout)
-	// defer cancel()
+	// subscribe to ws endpoint
+	endpoint := config.GetString("INFURA_ENDPOINT")
+	wsEndpoint := config.GetString("INFURA_WS_ENDPOINT")
+	go subscribeAndSync(ethRootCtx, endpoint, wsEndpoint)
+}
 
+// Finalize finalizes the logging module.
+func Finalize() {
+	ethCancel()
+}
+
+// subscribeAndSync subscribe to ws endpoints and sync latest block to DB
+func subscribeAndSync(ctx context.Context, endpoint, wsEndpoint string) {
+	headers := make(chan *types.Header)
+	defer close(headers)
+
+	// connect to infura endpoint
+	client, err := ethclient.Dial(endpoint)
+	if err != nil {
+		logging.Error(ctx, err.Error())
+	}
+	defer client.Close()
+
+	// connect to infura ws endpoint
+	wsclient, err := ethclient.Dial(wsEndpoint)
+	if err != nil {
+		logging.Error(ctx, err.Error())
+	}
+	defer wsclient.Close()
+
+	// subscribe for new block head
+	sub, err := wsclient.SubscribeNewHead(context.Background(), headers)
+	if err != nil {
+		logging.Error(ctx, err.Error())
+	}
+	defer sub.Unsubscribe()
+
+	// continuously sync latest block to DB
+SYNC:
+	for {
+		select {
+		case err := <-sub.Err():
+			logging.Error(ctx, err.Error())
+		case header := <-headers:
+			getBlockAndSync(ctx, client, header.Number.Uint64())
+		case <-ctx.Done():
+			logging.Info(ctx, "stop subscription")
+			break SYNC
+		}
+	}
+}
+
+// getBlockAndSync get 1 block and sync block, transactions to DB
+func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64) {
+	out := getBlocks(ctx, client, []uint64{blockNum})
+
+	// sync to DB ...
+	db := database.GetSQL()
+	for block := range out {
+		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Int64()))
+		// get block model instance and sync to DB
+		newBlock := models.NewBlock(block)
+		if err := newBlock.SetBlock(db); err != nil {
+			logging.Error(ctx, err.Error())
+		}
+
+		// get transaction model instances and sync to DB
+		blockHash := block.Header().Hash().String()
+		for _, t := range block.Transactions() {
+			// logging.Info(ctx, fmt.Sprintf("Sync transaction: %s", t.Hash().String()))
+			newTransaction, err := models.NewTransaction(t, blockHash)
+			if err != nil {
+				logging.Error(ctx, err.Error())
+			}
+			if err := newTransaction.SetTransaction(db); err != nil {
+				logging.Error(ctx, err.Error())
+			}
+		}
+	}
 }
 
 // getBlocks get blocks by provided block numbers parallelly
@@ -88,10 +165,8 @@ func SyncLastestBlocks(ctx context.Context) {
 	}
 
 	blockNums := make([]uint64, comfirmedBlock)
-	fmt.Println("blockNums: ", blockNums)
 	for i := uint64(0); i < comfirmedBlock; i++ {
 		blockNums[i] = num - i
-		fmt.Println("i: ", i, "blockNums: ", blockNums)
 	}
 
 	// query latest N block parallelly
@@ -100,7 +175,6 @@ func SyncLastestBlocks(ctx context.Context) {
 	// sync to DB ...
 	db := database.GetSQL()
 	for block := range out {
-		fmt.Println(block.Header().Number, block.Header().Hash())
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
 		if err := newBlock.SetBlock(db); err != nil {
@@ -120,9 +194,4 @@ func SyncLastestBlocks(ctx context.Context) {
 		}
 
 	}
-}
-
-// Finalize finalizes the logging module.
-func Finalize() {
-
 }

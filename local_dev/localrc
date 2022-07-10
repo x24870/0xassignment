@@ -21,3 +21,5 @@ export DATABASE_PASSWORD=1234
 export DATABASE_HOST=127.0.0.1
 export DATABASE_PORT=5433
 export DATABASE_NAME=assignment
+export INFURA_ENDPOINT=https://mainnet.infura.io/v3/
+export INFURA_WS_ENDPOINT=wss://mainnet.infura.io/ws/v3/
