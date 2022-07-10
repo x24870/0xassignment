@@ -26,15 +26,15 @@ var Transaction transaction
 
 // transaction ...
 type transaction struct {
-	BlockHash string `gorm:"column:block_hash"`
-	TxHash    string `gorm:"column:tx_hash"`
-	TxFrom    string `gorm:"column:tx_from"`
-	TxTo      string `gorm:"column:tx_to"`
-	Nounce    uint64 `gorm:"column:nounce"`
-	Data      []byte `gorm:"column:data"`
-	Value     string `gorm:"column:value"`
-	CreatedAt int64  `gorm:"column:created_at;default:extract(epoch from now())*1000"`
-	UpdatedAt int64  `gorm:"column:updated_at;default:extract(epoch from now())*1000"`
+	BlockHash string `gorm:"column:block_hash" json:"-"`
+	TxHash    string `gorm:"column:tx_hash" json:"tx_hash"`
+	TxFrom    string `gorm:"column:tx_from" json:"from"`
+	TxTo      string `gorm:"column:tx_to" json:"to"`
+	Nounce    uint64 `gorm:"column:nounce" json:"nounce"`
+	Data      []byte `gorm:"column:data" json:"data"`
+	Value     string `gorm:"column:value" json:"value"`
+	CreatedAt int64  `gorm:"column:created_at;default:extract(epoch from now())*1000" json:"-"`
+	UpdatedAt int64  `gorm:"column:updated_at;default:extract(epoch from now())*1000" json:"-"`
 }
 
 func init() {
@@ -129,7 +129,7 @@ func NewTransaction(t *types.Transaction, blockHash string) (TransactionIntf, er
 func (t *transaction) GetByHash(db *gorm.DB, hash string) (TransactionIntf, error) {
 	// Get transaction based on given number
 	transaction := transaction{}
-	err := db.Model(t).Where("number = ?", hash).First(&transaction).Error
+	err := db.Model(t).Where("tx_hash = ?", hash).First(&transaction).Error
 	if err != nil {
 		return nil, err
 	}
