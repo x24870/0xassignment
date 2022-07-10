@@ -34,11 +34,19 @@ CREATE TABLE IF NOT EXISTS public.transactions
     updated_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision)
 );
 
+-- Table: public.receipt
+CREATE TABLE IF NOT EXISTS public.receipt
+(
+    tx_hash   VARCHAR(255)  UNIQUE NOT NULL REFERENCES transactions (tx_hash) ON DELETE CASCADE,
+    
+    created_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision),
+    updated_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision)
+);
+
 -- Table: public.transaction_logs
 CREATE TABLE IF NOT EXISTS public.transaction_logs
 (
-    tx_hash   VARCHAR(255) REFERENCES transactions (tx_hash) ON DELETE CASCADE,
-    log_index INT,
+    tx_hash   VARCHAR(255) UNIQUE NOT NULL REFERENCES receipt (tx_hash) ON DELETE CASCADE,
     data      bytea,
     
     created_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision),
@@ -48,4 +56,5 @@ CREATE TABLE IF NOT EXISTS public.transaction_logs
 -- TABLESPACE pg_default;
 ALTER TABLE public.blocks OWNER to postgres;
 ALTER TABLE public.transactions OWNER to postgres;
+ALTER TABLE public.receipt OWNER to postgres;
 ALTER TABLE public.transaction_logs OWNER to postgres;
