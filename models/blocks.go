@@ -1,10 +1,7 @@
 package models
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"main/logging"
 
 	"github.com/ethereum/go-ethereum/core/types"
 
@@ -100,12 +97,11 @@ func (b *block) GetUpdatedAt() int64 {
 
 // SetBlocks ...
 func (b *block) SetBlock(db *gorm.DB) error {
-	return db.Where("number = ?", 20909768).FirstOrCreate(b).Error
+	return db.Where("number = ?", b.Number).FirstOrCreate(b).Error
 }
 
 // NewBlock
 func NewBlock(ethBlock *types.Block) BlockIntf {
-	logging.Info(context.Background(), fmt.Sprintf("num: %d", ethBlock.Header().Number))
 	newBlock := block{
 		Number: ethBlock.Header().Number.Uint64(),
 		Hash:   ethBlock.Hash().String(),
