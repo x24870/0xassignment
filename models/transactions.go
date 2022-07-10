@@ -1,12 +1,12 @@
 package models
 
 import (
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jinzhu/gorm"
 )
 
 // TransactionIntf ...
 type TransactionIntf interface {
-	GetID() uint64
 	GetBlockHash() string
 	GetTxHash() string
 	GetTxFrom() string
@@ -17,6 +17,7 @@ type TransactionIntf interface {
 	GetCreatedAt() int64
 	GetUpdatedAt() int64
 	GetByHash(db *gorm.DB, hash string) (TransactionIntf, error)
+	SetTransaction(db *gorm.DB) error
 }
 
 // Transaction is the exported static model interface.
@@ -24,7 +25,6 @@ var Transaction transaction
 
 // transaction ...
 type transaction struct {
-	ID        int    `gorm:"column:id;primary_key"`
 	BlockHash string `gorm:"column:block_hash"`
 	TxHash    string `gorm:"column:tx_hash"`
 	TxFrom    string `gorm:"column:tx_from"`
@@ -58,11 +58,6 @@ func (b *transaction) createUniqueIndexes(db *gorm.DB) error {
 // createForeignKeys ...
 func (b *transaction) createForeignKeys(db *gorm.DB) error {
 	return nil
-}
-
-// GetID ...
-func (b *transaction) GetID() uint64 {
-	return uint64(b.ID)
 }
 
 // GetBlockHash ...
@@ -110,14 +105,38 @@ func (b *transaction) GetUpdatedAt() int64 {
 	return b.UpdatedAt
 }
 
+// NewTransaction
+func NewTransaction(t *types.Transaction, blockHash string) (TransactionIntf, error) {
+	msg, err := t.AsMessage(types.NewEIP155Signer(t.ChainId()), nil)
+	if err != nil {
+		return nil, err
+	}
+	newTransaction := transaction{
+		BlockHash: blockHash,
+		TxHash:    t.Hash().String(),
+		TxFrom:    msg.From().Hash().String(),
+		TxTo:      msg.To().String(),
+		Nounce:    msg.Nonce(),
+		Data:      msg.Data(),
+		Value:     msg.Value().String(),
+	}
+
+	return &newTransaction, nil
+}
+
 // GetByHash ...
-func (b *transaction) GetByHash(db *gorm.DB, hash string) (TransactionIntf, error) {
+func (t *transaction) GetByHash(db *gorm.DB, hash string) (TransactionIntf, error) {
 	// Get transaction based on given number
 	transaction := transaction{}
-	err := db.Model(b).Where("number = ?", hash).First(&transaction).Error
+	err := db.Model(t).Where("number = ?", hash).First(&transaction).Error
 	if err != nil {
 		return nil, err
 	}
 
 	return &transaction, nil
+}
+
+// SetTransaction ...
+func (t *transaction) SetTransaction(db *gorm.DB) error {
+	return db.Where("tx_hash = ?", t.TxHash).FirstOrCreate(t).Error
 }

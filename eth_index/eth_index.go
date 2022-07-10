@@ -98,13 +98,25 @@ func SyncLastestBlocks(ctx context.Context) {
 	out := getBlocks(ctx, client, blockNums)
 
 	// sync to DB ...
-	// db := database.GetSQL()
 	db := database.GetSQL()
 	for block := range out {
 		fmt.Println(block.Header().Number, block.Header().Hash())
+		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
 		if err := newBlock.SetBlock(db); err != nil {
 			logging.Error(ctx, err.Error())
+		}
+
+		// get transaction model instances and sync to DB
+		blockHash := block.Header().Hash().String()
+		for _, t := range block.Transactions() {
+			newTransaction, err := models.NewTransaction(t, blockHash)
+			if err != nil {
+				logging.Error(ctx, err.Error())
+			}
+			if err := newTransaction.SetTransaction(db); err != nil {
+				logging.Error(ctx, err.Error())
+			}
 		}
 
 	}

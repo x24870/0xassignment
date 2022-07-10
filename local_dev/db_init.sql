@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS public.blocks
 -- Table: public.transactions
 CREATE TABLE IF NOT EXISTS public.transactions
 (
-    id         INT          PRIMARY KEY,
     block_hash VARCHAR(255) REFERENCES blocks (hash) ON DELETE CASCADE,
     tx_hash    VARCHAR(255) UNIQUE NOT NULL,
     tx_from    VARCHAR(255),
@@ -38,7 +37,6 @@ CREATE TABLE IF NOT EXISTS public.transactions
 -- Table: public.transaction_logs
 CREATE TABLE IF NOT EXISTS public.transaction_logs
 (
-    id        INT          PRIMARY KEY,
     tx_hash   VARCHAR(255) REFERENCES transactions (tx_hash) ON DELETE CASCADE,
     log_index INT,
     data      bytea,
