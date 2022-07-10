@@ -27,13 +27,13 @@ var Block block
 
 // block ...
 type block struct {
-	Number    uint64 `gorm:"column:number;primary_key"`
-	Hash      string `gorm:"column:hash"`
-	Time      uint64 `gorm:"column:time"`
-	Parent    string `gorm:"column:parent"`
-	Stable    bool   `gorm:"column:stable;defalt:false"`
-	CreatedAt int64  `gorm:"column:created_at;default:extract(epoch from now())*1000"`
-	UpdatedAt int64  `gorm:"column:updated_at;default:extract(epoch from now())*1000"`
+	Number    uint64 `gorm:"column:number;primary_key" json:"block_num"`
+	Hash      string `gorm:"column:hash" json:"block_hash"`
+	Time      uint64 `gorm:"column:time" json:"block_time"`
+	Parent    string `gorm:"column:parent" json:"parent_hash"`
+	Stable    bool   `gorm:"column:stable;defalt:false" json:"stable"`
+	CreatedAt int64  `gorm:"column:created_at;default:extract(epoch from now())*1000" json:"-"`
+	UpdatedAt int64  `gorm:"column:updated_at;default:extract(epoch from now())*1000" json:"-"`
 }
 
 func init() {

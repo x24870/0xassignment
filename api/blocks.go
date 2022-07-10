@@ -11,6 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type BlockWithTransaction struct {
+	Block        models.BlockIntf
+	Transactions []string
+}
+
 func init() {
 	// Setup domains router group.
 	root := GetRoot().Group("blocks",
@@ -61,6 +66,20 @@ func GetBlockByNumber(ctx *gin.Context) {
 		return
 	}
 
+	// Get transactions in the block
+	transactions, err := models.Transaction.GetByBlockHash(db, block.GetHash())
+	if err != nil {
+		respondWithErrorMessage(ctx, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Organize block and transactions
+	txHashes := make([]string, len(transactions))
+	for i, v := range transactions {
+		txHashes[i] = v.GetTxHash()
+	}
+	resp := BlockWithTransaction{Block: block, Transactions: txHashes}
+
 	// Set results to context.
-	ctx.Set("response", block)
+	ctx.Set("response", resp)
 }

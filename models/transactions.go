@@ -17,6 +17,7 @@ type TransactionIntf interface {
 	GetCreatedAt() int64
 	GetUpdatedAt() int64
 	GetByHash(db *gorm.DB, hash string) (TransactionIntf, error)
+	GetByBlockHash(db *gorm.DB, hash string) ([]TransactionIntf, error)
 	SetTransaction(db *gorm.DB) error
 }
 
@@ -134,6 +135,23 @@ func (t *transaction) GetByHash(db *gorm.DB, hash string) (TransactionIntf, erro
 	}
 
 	return &transaction, nil
+}
+
+// GetByBlockHash ...
+func (t *transaction) GetByBlockHash(db *gorm.DB, hash string) ([]TransactionIntf, error) {
+	transactions := []*transaction{}
+	err := db.Model(t).Where("block_hash = ?", hash).Find(&transactions).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Organize into ServiceIntf slice.
+	transactionIntfs := []TransactionIntf{}
+	for _, t := range transactions {
+		transactionIntfs = append(transactionIntfs, t)
+	}
+
+	return transactionIntfs, nil
 }
 
 // SetTransaction ...
