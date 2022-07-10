@@ -10,6 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type TransactionWithLogs struct {
+	Transactoin models.TransactionIntf
+	Logs        []models.TransactionLogIntf
+}
+
 func init() {
 	// Setup domains router group.
 	root := GetRoot().Group("transaction",
@@ -30,6 +35,18 @@ func GetByTxHash(ctx *gin.Context) {
 		return
 	}
 
+	// Get logs in the transaction receipt
+	logs, err := models.TransactionLog.GetByHash(db, transaction.GetTxHash())
+	if err != nil {
+		respondWithErrorMessage(ctx, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := TransactionWithLogs{
+		Transactoin: transaction,
+		Logs:        logs,
+	}
+
 	// Set results to context.
-	ctx.Set("response", transaction)
+	ctx.Set("response", resp)
 }
