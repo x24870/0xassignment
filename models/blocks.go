@@ -117,7 +117,7 @@ func (b *block) GetBlocks(db *gorm.DB, n uint64) ([]BlockIntf, error) {
 	// Get latest n blocks
 	blocks := []*block{}
 	err := db.Model(b).
-		Order("number").
+		Order("number desc").
 		Limit(n).
 		Find(&blocks).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
