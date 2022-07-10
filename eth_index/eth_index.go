@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/net/context"
 
@@ -87,11 +88,12 @@ SYNC:
 
 // getBlockAndSync get 1 block and sync block, transactions to DB
 func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64) {
-	out := getBlocks(ctx, client, []uint64{blockNum})
+	blocksCh := getBlocks(ctx, client, []uint64{blockNum})
 
 	// sync to DB ...
 	db := database.GetSQL()
-	for block := range out {
+	txs := []common.Hash{}
+	for block := range blocksCh {
 		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Int64()))
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
@@ -103,19 +105,48 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 		blockHash := block.Header().Hash().String()
 		for _, t := range block.Transactions() {
 			// logging.Info(ctx, fmt.Sprintf("Sync transaction: %s", t.Hash().String()))
+			txs = append(txs, t.Hash())
 			newTransaction, err := models.NewTransaction(t, blockHash)
 			if err != nil {
 				logging.Error(ctx, err.Error())
+				continue
 			}
 			if err := newTransaction.SetTransaction(db); err != nil {
 				logging.Error(ctx, err.Error())
 			}
 		}
 	}
+
+	// get receit and sync to DB ...
+	receiptCh := getReceipt(ctx, client, txs)
+	for receipt := range receiptCh {
+		logging.Info(ctx, fmt.Sprintf("Sync receipt: %s", receipt.TxHash.String()))
+		// get receipt model instance and sync to DB
+		newReceipt, err := models.NewReceipt(receipt)
+		if err != nil {
+			logging.Error(ctx, err.Error())
+			continue
+		}
+		if err := newReceipt.SetReceipt(db); err != nil {
+			logging.Error(ctx, err.Error())
+		}
+
+		// get transaction log model instance and sync to DB
+		for _, log := range receipt.Logs {
+			newLog, err := models.NewTransactionLog(log, receipt.TxHash.String())
+			if err != nil {
+				logging.Error(ctx, err.Error())
+				continue
+			}
+			if err := newLog.SetTransactionLog(db); err != nil {
+				logging.Error(ctx, err.Error())
+			}
+		}
+	}
 }
 
-// getBlocks get blocks by provided block numbers parallelly
-// return a channel contains block data
+// getBlocks parallelly get blocks by provided block numbers
+// return a channel contains blocks
 func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64) chan *types.Block {
 	ret := make(chan *types.Block, len(blockNums))
 	wg := sync.WaitGroup{}
@@ -124,6 +155,7 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 	// get blocks by block number
 	for _, num := range blockNums {
 		go func(num uint64) {
+			defer wg.Done()
 			n := new(big.Int).SetUint64(num)
 			block, err := client.BlockByNumber(ctx, n)
 			if err != nil {
@@ -132,11 +164,41 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 			}
 			select {
 			case ret <- block:
-				wg.Done()
 			case <-ctx.Done():
-				wg.Done()
 			}
 		}(num)
+	}
+
+	// close channel if all goroutine done
+	go func() {
+		wg.Wait()
+		close(ret)
+	}()
+
+	return ret
+}
+
+// getReceipt parallelly get receipts by provided tx hash
+// return a channel contains receipts
+func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common.Hash) chan *types.Receipt {
+	ret := make(chan *types.Receipt, len(txHashes))
+	wg := sync.WaitGroup{}
+	wg.Add(len(txHashes))
+
+	// get receipt by tx hash
+	for _, txHash := range txHashes {
+		go func(txHash common.Hash) {
+			defer wg.Done()
+			receipt, err := client.TransactionReceipt(ctx, txHash)
+			if err != nil {
+				logging.Error(ctx, err.Error())
+				return
+			}
+			select {
+			case ret <- receipt:
+			case <-ctx.Done():
+			}
+		}(txHash)
 	}
 
 	// close channel if all goroutine done

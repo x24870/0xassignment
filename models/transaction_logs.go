@@ -18,6 +18,8 @@ var TransactionLog transactionLog
 // transactionLog ...
 type transactionLog struct {
 	TxHash    string `gorm:"column:tx_hash" json:"tx_hash"`
+	LogIndex  int64  `gorm:"column:log_index" json:"log_index"`
+	Data      []byte `gorm:"column:data" json:"data"`
 	CreatedAt int64  `gorm:"column:created_at;default:extract(epoch from now())*1000" json:"-"`
 	UpdatedAt int64  `gorm:"column:updated_at;default:extract(epoch from now())*1000" json:"-"`
 }
@@ -28,7 +30,7 @@ func init() {
 
 // TableName is used by GORM to choose which table to use.
 func (t *transactionLog) TableName() string {
-	return "transactionLogs"
+	return "transaction_logs"
 }
 
 // createIndexes ...

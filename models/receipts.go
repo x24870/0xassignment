@@ -62,9 +62,9 @@ func (r *receipt) GetUpdatedAt() int64 {
 }
 
 // NewReceipt
-func NewReceipt(r *types.Receipt, txHash string) (ReceiptIntf, error) {
+func NewReceipt(r *types.Receipt) (ReceiptIntf, error) {
 	newReceipt := receipt{
-		TxHash: txHash,
+		TxHash: r.TxHash.String(),
 	}
 
 	return &newReceipt, nil
