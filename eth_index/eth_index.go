@@ -78,8 +78,8 @@ SYNC:
 		case err := <-sub.Err():
 			logging.Error(ctx, err.Error())
 		case header := <-headers:
-			getBlockAndSync(ctx, client, header.Number.Uint64())
-			getBlockAndSync(ctx, client, header.Number.Uint64()-comfirmedBlock)
+			getBlockAndSync(ctx, client, header.Number.Uint64(), false)
+			getBlockAndSync(ctx, client, header.Number.Uint64()-comfirmedBlock, true)
 		case <-ctx.Done():
 			logging.Info(ctx, "stop subscription")
 			break SYNC
@@ -88,7 +88,7 @@ SYNC:
 }
 
 // getBlockAndSync get 1 block and sync block, transactions, receipt, logs to DB
-func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64) {
+func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64, stable bool) {
 	blocksCh := getBlocks(ctx, client, []uint64{blockNum})
 
 	// sync to DB ...
@@ -96,30 +96,14 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 	txs := []common.Hash{}
 	for block := range blocksCh {
 		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Uint64()))
-		// check if this block existed in DB
-		old, err := models.Block.GetByNumber(db, block.Number().Uint64())
-		if err != nil && err != gorm.ErrRecordNotFound {
-			logging.Error(ctx, err.Error())
-		}
-		// if hashes are the same, update the block to stable
-		if old != nil && old.GetHash() == block.Hash().String() {
-			if err := old.UpdateBlockStable(db, true); err != nil {
-				logging.Error(ctx, err.Error())
-			}
+		saveBlock := compareHashAndUpdate(ctx, db, block)
+		if !saveBlock {
 			continue
-		}
-		// if hashes not matching, delete the block in the DB
-		if old != nil && old.GetHash() != block.Hash().String() {
-			logging.Info(ctx, fmt.Sprintf("delete: %d\n", old.GetNumber()))
-			if err := old.DeleteBlock(db); err != nil {
-				logging.Error(ctx, err.Error())
-				continue
-			}
 		}
 
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
-		newBlock.SetStable(old != nil)
+		newBlock.SetStable(stable)
 		if err := newBlock.SetBlock(db); err != nil {
 			logging.Error(ctx, err.Error())
 		}
@@ -233,6 +217,38 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 	return ret
 }
 
+// compareHashAndUpdate
+// returns if the block should be update
+func compareHashAndUpdate(ctx context.Context, db *gorm.DB, block *types.Block) bool {
+	old, err := models.Block.GetByNumber(db, block.Number().Uint64())
+	// DB error, shouldn't save the block
+	if err != nil && err != gorm.ErrRecordNotFound {
+		logging.Error(ctx, err.Error())
+		return false
+	}
+	// if hashes are the same, update the block to stable
+	// and don't have to update other data
+	if old != nil && old.GetHash() == block.Hash().String() {
+		if err := old.UpdateBlockStable(db, true); err != nil {
+			logging.Error(ctx, err.Error())
+		}
+		return false
+	}
+	// if hashes not matching, delete the block in the DB
+	if old != nil && old.GetHash() != block.Hash().String() {
+		logging.Info(ctx, fmt.Sprintf("delete: %d\n", old.GetNumber()))
+		// delete fail, shouldn't save the block
+		if err := old.DeleteBlock(db); err != nil {
+			logging.Error(ctx, err.Error())
+			return false
+		}
+		// delete successful, save this newer block
+		return true
+	}
+	// old == nil, save this newer block
+	return true
+}
+
 func SyncLastestBlocks(ctx context.Context) {
 	logging.Info(ctx, fmt.Sprintf("Sync latest %d blocks...", comfirmedBlock))
 	// init eth client
@@ -248,7 +264,10 @@ func SyncLastestBlocks(ctx context.Context) {
 		logging.Critical(ctx, err.Error())
 		return
 	}
-	logging.Info(ctx, fmt.Sprintf("latest block num: %d\n", uint64(num)))
+
+	logging.Info(ctx, fmt.Sprintf(
+		"latest block num: %d\nSync blocks from %d to %d",
+		num, num-comfirmedBlock, num))
 
 	blockNums := make([]uint64, comfirmedBlock)
 	for i := uint64(0); i < comfirmedBlock; i++ {
@@ -261,11 +280,18 @@ func SyncLastestBlocks(ctx context.Context) {
 	// sync to DB ...
 	db := database.GetSQL()
 	for block := range out {
-		logging.Info(ctx, fmt.Sprintf("latest block [%d]\n", block.Number().Uint64()))
+		logging.Info(ctx, fmt.Sprintf("Sync block [%d]\n", block.Number().Uint64()))
+
+		saveBlock := compareHashAndUpdate(ctx, db, block)
+		if !saveBlock {
+			continue
+		}
+
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
 		if err := newBlock.SetBlock(db); err != nil {
 			logging.Error(ctx, err.Error())
+			continue
 		}
 
 		// get transaction model instances and sync to DB
