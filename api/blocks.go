@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"main/api/middleware"
+	"main/config"
 	"main/database"
 	"main/models"
 
@@ -32,7 +33,7 @@ func GetBlocks(ctx *gin.Context) {
 		respondWithErrorMessage(ctx, http.StatusBadRequest, "invalid limit")
 		return
 	}
-	if num > 5 { // TODO: get from global config
+	if num > config.GetUint64("API_MAX_BLOCK_REQ") {
 		respondWithErrorMessage(ctx, http.StatusBadRequest, "require too many blocks")
 		return
 	}
