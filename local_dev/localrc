@@ -25,3 +25,4 @@ export INFURA_ENDPOINT=https://mainnet.infura.io/v3/
 export INFURA_WS_ENDPOINT=wss://mainnet.infura.io/ws/v3/
 export API_MAX_BLOCK_REQ=20
 export COMFIRMED_BLOCK=20
+export RPC_TIMEOUT_LIMIT=10

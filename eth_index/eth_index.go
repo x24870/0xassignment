@@ -8,6 +8,7 @@ import (
 	"main/models"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -19,6 +20,9 @@ import (
 
 // Static configuration variables initalized at runtime.
 var comfirmedBlock uint64
+var endpointURL string
+var wsEndpointURL string
+var rpcTimeout uint
 
 // eth index root context.
 var ethRootCtx context.Context
@@ -27,6 +31,9 @@ var ethCancel context.CancelFunc
 // init loads the logging configurations.
 func init() {
 	comfirmedBlock = config.GetUint64("COMFIRMED_BLOCK")
+	endpointURL = config.GetString("INFURA_ENDPOINT")
+	wsEndpointURL = config.GetString("INFURA_WS_ENDPOINT")
+	rpcTimeout = config.GetUint("RPC_TIMEOUT_LIMIT")
 }
 
 // Initialize initializes the logger module.
@@ -35,9 +42,8 @@ func Initialize(ctx context.Context) {
 	ethRootCtx, ethCancel = context.WithCancel(ctx)
 
 	// connect to rpc endpoints and sync
-	endpoint := config.GetString("INFURA_ENDPOINT")
-	wsEndpoint := config.GetString("INFURA_WS_ENDPOINT")
-	go subscribeAndSync(ethRootCtx, endpoint, wsEndpoint)
+
+	go subscribeAndSync(ethRootCtx, endpointURL, wsEndpointURL)
 }
 
 // Finalize finalizes the logging module.
@@ -78,8 +84,8 @@ SYNC:
 		case err := <-sub.Err():
 			logging.Error(ctx, err.Error())
 		case header := <-headers:
-			getBlockAndSync(ctx, client, header.Number.Uint64(), false)
-			getBlockAndSync(ctx, client, header.Number.Uint64()-comfirmedBlock, true)
+			go getBlockAndSync(ctx, client, header.Number.Uint64(), false)
+			go getBlockAndSync(ctx, client, header.Number.Uint64()-comfirmedBlock, true)
 		case <-ctx.Done():
 			logging.Info(ctx, "stop subscription")
 			break SYNC
@@ -161,10 +167,11 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 
 	// get blocks by block number
 	for _, num := range blockNums {
-		go func(num uint64) {
+		go func(ctx context.Context, num uint64) {
 			defer wg.Done()
 			n := new(big.Int).SetUint64(num)
-			block, err := client.BlockByNumber(ctx, n)
+			c, _ := context.WithTimeout(ctx, time.Duration(rpcTimeout))
+			block, err := client.BlockByNumber(c, n)
 			if err != nil {
 				logging.Error(ctx, err.Error())
 				return
@@ -173,7 +180,7 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 			case ret <- block:
 			case <-ctx.Done():
 			}
-		}(num)
+		}(ctx, num)
 	}
 
 	// close channel if all goroutine done
@@ -196,7 +203,8 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 	for _, txHash := range txHashes {
 		go func(txHash common.Hash) {
 			defer wg.Done()
-			receipt, err := client.TransactionReceipt(ctx, txHash)
+			c, _ := context.WithTimeout(ctx, time.Duration(rpcTimeout))
+			receipt, err := client.TransactionReceipt(c, txHash)
 			if err != nil {
 				logging.Error(ctx, err.Error())
 				return
@@ -252,7 +260,7 @@ func compareHashAndUpdate(ctx context.Context, db *gorm.DB, block *types.Block) 
 func SyncLastestBlocks(ctx context.Context) {
 	logging.Info(ctx, fmt.Sprintf("Sync latest %d blocks...", comfirmedBlock))
 	// init eth client
-	client, err := ethclient.Dial(config.GetString("INFURA_ENDPOINT"))
+	client, err := ethclient.Dial(endpointURL)
 	if err != nil {
 		panic(err)
 	}
