@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.blocks
 -- Table: public.transactions
 CREATE TABLE IF NOT EXISTS public.transactions
 (
-    block_hash VARCHAR(255) REFERENCES blocks (hash) ON DELETE CASCADE,
+    block_hash VARCHAR(255) REFERENCES public.blocks (hash) ON DELETE CASCADE,
     tx_hash    VARCHAR(255) UNIQUE NOT NULL,
     tx_from    VARCHAR(255),
     tx_to      VARCHAR(255),
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.transactions
 -- Table: public.receipts
 CREATE TABLE IF NOT EXISTS public.receipts
 (
-    tx_hash   VARCHAR(255)  UNIQUE NOT NULL REFERENCES transactions (tx_hash) ON DELETE CASCADE,
+    tx_hash   VARCHAR(255)  UNIQUE NOT NULL REFERENCES public.transactions (tx_hash) ON DELETE CASCADE,
     
     created_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision),
     updated_at BIGINT DEFAULT (date_part('epoch'::text, now()) * (1000)::double precision)
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.receipts
 -- Table: public.transaction_logs
 CREATE TABLE IF NOT EXISTS public.transaction_logs
 (
-    tx_hash   VARCHAR(255) UNIQUE NOT NULL REFERENCES receipts (tx_hash) ON DELETE CASCADE,
+    tx_hash   VARCHAR(255) UNIQUE NOT NULL REFERENCES public.receipts (tx_hash) ON DELETE CASCADE,
     log_index BIGINT,
     data      bytea,
     
