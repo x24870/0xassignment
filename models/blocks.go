@@ -15,11 +15,14 @@ type BlockIntf interface {
 	GetTime() uint64
 	GetParent() string
 	GetStable() bool
+	SetStable(stable bool)
 	GetCreatedAt() int64
 	GetUpdatedAt() int64
 	GetBlocks(db *gorm.DB, num uint64) ([]BlockIntf, error)
 	GetByNumber(db *gorm.DB, num uint64) (BlockIntf, error)
 	SetBlock(db *gorm.DB) error
+	UpdateBlockStable(db *gorm.DB, stable bool) error
+	DeleteBlock(db *gorm.DB) error
 }
 
 // Block is the exported static model interface.
@@ -85,6 +88,11 @@ func (b *block) GetStable() bool {
 	return b.Stable
 }
 
+// SetStable ...
+func (b *block) SetStable(stable bool) {
+	b.Stable = stable
+}
+
 // GetCreatedAt ...
 func (b *block) GetCreatedAt() int64 {
 	return b.CreatedAt
@@ -93,11 +101,6 @@ func (b *block) GetCreatedAt() int64 {
 // GetUpdatedAt ...
 func (b *block) GetUpdatedAt() int64 {
 	return b.UpdatedAt
-}
-
-// SetBlocks ...
-func (b *block) SetBlock(db *gorm.DB) error {
-	return db.Where("number = ?", b.Number).FirstOrCreate(b).Error
 }
 
 // NewBlock
@@ -143,4 +146,20 @@ func (b *block) GetByNumber(db *gorm.DB, num uint64) (BlockIntf, error) {
 	}
 
 	return &block, nil
+}
+
+// SetBlocks ...
+func (b *block) SetBlock(db *gorm.DB) error {
+	return db.Where("number = ?", b.Number).FirstOrCreate(b).Error
+}
+
+// UpdateBlocks ...
+func (b *block) UpdateBlockStable(db *gorm.DB, stable bool) error {
+	b.Stable = stable
+	return db.Save(b).Error
+}
+
+// DeleteBlocks ...
+func (b *block) DeleteBlock(db *gorm.DB) error {
+	return db.Delete(b).Error
 }

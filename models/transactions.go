@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jinzhu/gorm"
 )
@@ -112,11 +113,15 @@ func NewTransaction(t *types.Transaction, blockHash string) (TransactionIntf, er
 	if err != nil {
 		return nil, err
 	}
+	to := t.To()
+	if to == nil {
+		to = &common.Address{}
+	}
 	newTransaction := transaction{
 		BlockHash: blockHash,
 		TxHash:    t.Hash().String(),
 		TxFrom:    from.String(),
-		TxTo:      t.To().String(),
+		TxTo:      to.String(),
 		Nounce:    t.Nonce(),
 		Data:      t.Data(),
 		Value:     t.Value().String(),

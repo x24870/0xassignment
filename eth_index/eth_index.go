@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/jinzhu/gorm"
 	"golang.org/x/net/context"
 
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -25,8 +26,7 @@ var ethCancel context.CancelFunc
 
 // init loads the logging configurations.
 func init() {
-	// comfirmedBlock = config.GetUint("COMFIRMED_BLOCK")
-	comfirmedBlock = 1 //20
+	comfirmedBlock = config.GetUint64("COMFIRMED_BLOCK")
 }
 
 // Initialize initializes the logger module.
@@ -34,7 +34,7 @@ func Initialize(ctx context.Context) {
 	// init root context and cancel function
 	ethRootCtx, ethCancel = context.WithCancel(ctx)
 
-	// subscribe to ws endpoint
+	// connect to rpc endpoints and sync
 	endpoint := config.GetString("INFURA_ENDPOINT")
 	wsEndpoint := config.GetString("INFURA_WS_ENDPOINT")
 	go subscribeAndSync(ethRootCtx, endpoint, wsEndpoint)
@@ -79,6 +79,7 @@ SYNC:
 			logging.Error(ctx, err.Error())
 		case header := <-headers:
 			getBlockAndSync(ctx, client, header.Number.Uint64())
+			getBlockAndSync(ctx, client, header.Number.Uint64()-comfirmedBlock)
 		case <-ctx.Done():
 			logging.Info(ctx, "stop subscription")
 			break SYNC
@@ -86,7 +87,7 @@ SYNC:
 	}
 }
 
-// getBlockAndSync get 1 block and sync block, transactions to DB
+// getBlockAndSync get 1 block and sync block, transactions, receipt, logs to DB
 func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64) {
 	blocksCh := getBlocks(ctx, client, []uint64{blockNum})
 
@@ -94,9 +95,31 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 	db := database.GetSQL()
 	txs := []common.Hash{}
 	for block := range blocksCh {
-		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Int64()))
+		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Uint64()))
+		// check if this block existed in DB
+		old, err := models.Block.GetByNumber(db, block.Number().Uint64())
+		if err != nil && err != gorm.ErrRecordNotFound {
+			logging.Error(ctx, err.Error())
+		}
+		// if hashes are the same, update the block to stable
+		if old != nil && old.GetHash() == block.Hash().String() {
+			if err := old.UpdateBlockStable(db, true); err != nil {
+				logging.Error(ctx, err.Error())
+			}
+			continue
+		}
+		// if hashes not matching, delete the block in the DB
+		if old != nil && old.GetHash() != block.Hash().String() {
+			logging.Info(ctx, fmt.Sprintf("delete: %d\n", old.GetNumber()))
+			if err := old.DeleteBlock(db); err != nil {
+				logging.Error(ctx, err.Error())
+				continue
+			}
+		}
+
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
+		newBlock.SetStable(old != nil)
 		if err := newBlock.SetBlock(db); err != nil {
 			logging.Error(ctx, err.Error())
 		}
@@ -120,7 +143,7 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 	// get receit and sync to DB ...
 	receiptCh := getReceipt(ctx, client, txs)
 	for receipt := range receiptCh {
-		logging.Info(ctx, fmt.Sprintf("Sync receipt: %s", receipt.TxHash.String()))
+		// logging.Info(ctx, fmt.Sprintf("Sync receipt: %s", receipt.TxHash.String()))
 		// get receipt model instance and sync to DB
 		newReceipt, err := models.NewReceipt(receipt)
 		if err != nil {
@@ -213,7 +236,7 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 func SyncLastestBlocks(ctx context.Context) {
 	logging.Info(ctx, fmt.Sprintf("Sync latest %d blocks...", comfirmedBlock))
 	// init eth client
-	client, err := ethclient.Dial("https://data-seed-prebsc-2-s3.binance.org:8545/")
+	client, err := ethclient.Dial(config.GetString("INFURA_ENDPOINT"))
 	if err != nil {
 		panic(err)
 	}
@@ -221,10 +244,11 @@ func SyncLastestBlocks(ctx context.Context) {
 
 	// get lastest N block numbers
 	num, err := client.BlockNumber(ctx)
-	logging.Info(ctx, fmt.Sprintf("latest block num: %d", num))
 	if err != nil {
-		logging.Error(ctx, err.Error())
+		logging.Critical(ctx, err.Error())
+		return
 	}
+	logging.Info(ctx, fmt.Sprintf("latest block num: %d\n", uint64(num)))
 
 	blockNums := make([]uint64, comfirmedBlock)
 	for i := uint64(0); i < comfirmedBlock; i++ {
@@ -237,6 +261,7 @@ func SyncLastestBlocks(ctx context.Context) {
 	// sync to DB ...
 	db := database.GetSQL()
 	for block := range out {
+		logging.Info(ctx, fmt.Sprintf("latest block [%d]\n", block.Number().Uint64()))
 		// get block model instance and sync to DB
 		newBlock := models.NewBlock(block)
 		if err := newBlock.SetBlock(db); err != nil {
