@@ -8,7 +8,6 @@ import (
 	"main/models"
 	"math/big"
 	"sync"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -22,7 +21,6 @@ import (
 var comfirmedBlock uint64
 var endpointURL string
 var wsEndpointURL string
-var rpcTimeout uint
 
 // eth index root context.
 var ethRootCtx context.Context
@@ -33,7 +31,6 @@ func init() {
 	comfirmedBlock = config.GetUint64("COMFIRMED_BLOCK")
 	endpointURL = config.GetString("INFURA_ENDPOINT")
 	wsEndpointURL = config.GetString("INFURA_WS_ENDPOINT")
-	rpcTimeout = config.GetUint("RPC_TIMEOUT_LIMIT")
 }
 
 // Initialize initializes the logger module.
@@ -42,7 +39,6 @@ func Initialize(ctx context.Context) {
 	ethRootCtx, ethCancel = context.WithCancel(ctx)
 
 	// connect to rpc endpoints and sync
-
 	go subscribeAndSync(ethRootCtx, endpointURL, wsEndpointURL)
 }
 
@@ -52,19 +48,19 @@ func Finalize() {
 }
 
 // subscribeAndSync subscribe to ws endpoints and sync latest block to DB
-func subscribeAndSync(ctx context.Context, endpoint, wsEndpoint string) {
+func subscribeAndSync(ctx context.Context, endpointURL, wsEndpointURL string) {
 	headers := make(chan *types.Header)
 	defer close(headers)
 
 	// connect to infura endpoint
-	client, err := ethclient.Dial(endpoint)
+	client, err := ethclient.Dial(endpointURL)
 	if err != nil {
 		logging.Error(ctx, err.Error())
 	}
 	defer client.Close()
 
 	// connect to infura ws endpoint
-	wsclient, err := ethclient.Dial(wsEndpoint)
+	wsclient, err := ethclient.Dial(wsEndpointURL)
 	if err != nil {
 		logging.Error(ctx, err.Error())
 	}
@@ -101,7 +97,7 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 	db := database.GetSQL()
 	txs := []common.Hash{}
 	for block := range blocksCh {
-		logging.Info(ctx, fmt.Sprintf("Sync block: %d", block.Number().Uint64()))
+		logging.Info(ctx, fmt.Sprintf("Real time Sync block: %d", block.Number().Uint64()))
 		saveBlock := compareHashAndUpdate(ctx, db, block)
 		if !saveBlock {
 			continue
@@ -170,8 +166,7 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 		go func(ctx context.Context, num uint64) {
 			defer wg.Done()
 			n := new(big.Int).SetUint64(num)
-			c, _ := context.WithTimeout(ctx, time.Duration(rpcTimeout))
-			block, err := client.BlockByNumber(c, n)
+			block, err := client.BlockByNumber(ctx, n)
 			if err != nil {
 				logging.Error(ctx, err.Error())
 				return
@@ -203,8 +198,7 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 	for _, txHash := range txHashes {
 		go func(txHash common.Hash) {
 			defer wg.Done()
-			c, _ := context.WithTimeout(ctx, time.Duration(rpcTimeout))
-			receipt, err := client.TransactionReceipt(c, txHash)
+			receipt, err := client.TransactionReceipt(ctx, txHash)
 			if err != nil {
 				logging.Error(ctx, err.Error())
 				return
