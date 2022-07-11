@@ -90,46 +90,34 @@ SYNC:
 }
 
 // getBlockAndSync get 1 block and sync block, transactions, receipt, logs to DB
-func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uint64, stable bool) {
+func getBlockAndSync(
+	ctx context.Context, client *ethclient.Client, blockNum uint64, stable bool) {
 	blocksCh := getBlocks(ctx, client, []uint64{blockNum})
 
-	// sync to DB ...
+	block := <-blocksCh
 	db := database.GetSQL()
-	txs := []common.Hash{}
-	for block := range blocksCh {
-		logging.Info(ctx, fmt.Sprintf("Real time Sync block: %d", block.Number().Uint64()))
-		saveBlock := compareHashAndUpdate(ctx, db, block)
-		if !saveBlock {
-			continue
-		}
+	logging.Info(ctx, fmt.Sprintf("Real time Sync block: %d", block.Number().Uint64()))
 
-		// get block model instance and sync to DB
-		newBlock := models.NewBlock(block)
-		newBlock.SetStable(stable)
-		if err := newBlock.SetBlock(db); err != nil {
-			logging.Error(ctx, err.Error())
-		}
-
-		// get transaction model instances and sync to DB
-		blockHash := block.Header().Hash().String()
-		for _, t := range block.Transactions() {
-			// logging.Info(ctx, fmt.Sprintf("Sync transaction: %s", t.Hash().String()))
-			txs = append(txs, t.Hash())
-			newTransaction, err := models.NewTransaction(t, blockHash)
-			if err != nil {
-				logging.Error(ctx, err.Error())
-				continue
-			}
-			if err := newTransaction.SetTransaction(db); err != nil {
-				logging.Error(ctx, err.Error())
-			}
-		}
+	// check if the block in DB should be replace
+	saveBlock := compareHashAndUpdate(ctx, db, block)
+	if !saveBlock {
+		return
 	}
 
-	// get receit and sync to DB ...
-	receiptCh := getReceipt(ctx, client, txs)
+	// get block model instance and sync to DB
+	newBlock := models.NewBlock(block)
+	newBlock.SetStable(stable)
+	if err := newBlock.SetBlock(db); err != nil {
+		logging.Error(ctx, err.Error())
+	}
+
+	// sync transactions to DB
+	blockHash := block.Header().Hash().String()
+	saveTransactions(ctx, db, block.Transactions(), blockHash)
+
+	// get receipts by tx hashes
+	receiptCh := getReceipt(ctx, client, block.Transactions())
 	for receipt := range receiptCh {
-		// logging.Info(ctx, fmt.Sprintf("Sync receipt: %s", receipt.TxHash.String()))
 		// get receipt model instance and sync to DB
 		newReceipt, err := models.NewReceipt(receipt)
 		if err != nil {
@@ -140,23 +128,14 @@ func getBlockAndSync(ctx context.Context, client *ethclient.Client, blockNum uin
 			logging.Error(ctx, err.Error())
 		}
 
-		// get transaction log model instance and sync to DB
-		for _, log := range receipt.Logs {
-			newLog, err := models.NewTransactionLog(log, receipt.TxHash.String())
-			if err != nil {
-				logging.Error(ctx, err.Error())
-				continue
-			}
-			if err := newLog.SetTransactionLog(db); err != nil {
-				logging.Error(ctx, err.Error())
-			}
-		}
+		saveTransactionLogs(ctx, db, receipt.Logs, receipt.TxHash.String())
 	}
 }
 
 // getBlocks parallelly get blocks by provided block numbers
 // return a channel contains blocks
-func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64) chan *types.Block {
+func getBlocks(
+	ctx context.Context, client *ethclient.Client, blockNums []uint64) chan *types.Block {
 	ret := make(chan *types.Block, len(blockNums))
 	wg := sync.WaitGroup{}
 	wg.Add(len(blockNums))
@@ -189,7 +168,8 @@ func getBlocks(ctx context.Context, client *ethclient.Client, blockNums []uint64
 
 // getReceipt parallelly get receipts by provided tx hash
 // return a channel contains receipts
-func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common.Hash) chan *types.Receipt {
+func getReceipt(
+	ctx context.Context, client *ethclient.Client, txHashes []*types.Transaction) chan *types.Receipt {
 	ret := make(chan *types.Receipt, len(txHashes))
 	wg := sync.WaitGroup{}
 	wg.Add(len(txHashes))
@@ -207,7 +187,7 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 			case ret <- receipt:
 			case <-ctx.Done():
 			}
-		}(txHash)
+		}(txHash.Hash())
 	}
 
 	// close channel if all goroutine done
@@ -219,8 +199,10 @@ func getReceipt(ctx context.Context, client *ethclient.Client, txHashes []common
 	return ret
 }
 
-// compareHashAndUpdate
-// returns if the block should be update
+// compareHashAndUpdate compare the requested block hash with block hash in DB
+// if the hashes are the same, update the block in DB to stable
+// else delete the block data in DB
+// returns if the requested block should be save
 func compareHashAndUpdate(ctx context.Context, db *gorm.DB, block *types.Block) bool {
 	old, err := models.Block.GetByNumber(db, block.Number().Uint64())
 	// DB error, shouldn't save the block
@@ -251,6 +233,7 @@ func compareHashAndUpdate(ctx context.Context, db *gorm.DB, block *types.Block) 
 	return true
 }
 
+// SyncLastestBlocks Sync latest N blocks to DB
 func SyncLastestBlocks(ctx context.Context) {
 	logging.Info(ctx, fmt.Sprintf("Sync latest %d blocks...", comfirmedBlock))
 	// init eth client
@@ -277,11 +260,11 @@ func SyncLastestBlocks(ctx context.Context) {
 	}
 
 	// query latest N block parallelly
-	out := getBlocks(ctx, client, blockNums)
+	blockCh := getBlocks(ctx, client, blockNums)
 
 	// sync to DB ...
 	db := database.GetSQL()
-	for block := range out {
+	for block := range blockCh {
 		logging.Info(ctx, fmt.Sprintf("Sync block [%d]\n", block.Number().Uint64()))
 
 		saveBlock := compareHashAndUpdate(ctx, db, block)
@@ -289,24 +272,60 @@ func SyncLastestBlocks(ctx context.Context) {
 			continue
 		}
 
-		// get block model instance and sync to DB
-		newBlock := models.NewBlock(block)
-		if err := newBlock.SetBlock(db); err != nil {
+		go func(ctx context.Context, db *gorm.DB, block *types.Block) {
+			// get block model instance and sync to DB
+			newBlock := models.NewBlock(block)
+			if err := newBlock.SetBlock(db); err != nil {
+				logging.Error(ctx, err.Error())
+			}
+			// sync transactions to DB
+			blockHash := block.Header().Hash().String()
+			saveTransactions(ctx, db, block.Transactions(), blockHash)
+
+			// get receipts by tx hashes
+			receiptCh := getReceipt(ctx, client, block.Transactions())
+			for receipt := range receiptCh {
+				// get receipt model instance and sync to DB
+				newReceipt, err := models.NewReceipt(receipt)
+				if err != nil {
+					logging.Error(ctx, err.Error())
+					continue
+				}
+				if err := newReceipt.SetReceipt(db); err != nil {
+					logging.Error(ctx, err.Error())
+				}
+
+				saveTransactionLogs(ctx, db, receipt.Logs, receipt.TxHash.String())
+			}
+		}(ctx, db, block)
+
+	}
+}
+
+func saveTransactions(
+	ctx context.Context, db *gorm.DB, transactions []*types.Transaction, blockHash string) {
+	for _, t := range transactions {
+		newTransaction, err := models.NewTransaction(t, blockHash)
+		if err != nil {
 			logging.Error(ctx, err.Error())
 			continue
 		}
-
-		// get transaction model instances and sync to DB
-		blockHash := block.Header().Hash().String()
-		for _, t := range block.Transactions() {
-			newTransaction, err := models.NewTransaction(t, blockHash)
-			if err != nil {
-				logging.Error(ctx, err.Error())
-			}
-			if err := newTransaction.SetTransaction(db); err != nil {
-				logging.Error(ctx, err.Error())
-			}
+		if err := newTransaction.SetTransaction(db); err != nil {
+			logging.Error(ctx, err.Error())
 		}
+	}
+}
 
+func saveTransactionLogs(
+	ctx context.Context, db *gorm.DB, TxLogs []*types.Log, txHash string) {
+	for _, txLog := range TxLogs {
+		newTxLog, err := models.NewTransactionLog(txLog, txHash)
+		if err != nil {
+			logging.Error(ctx, err.Error())
+			continue
+		}
+		if err := newTxLog.SetTransactionLog(db); err != nil {
+			logging.Error(ctx, err.Error())
+		}
 	}
 }
