@@ -35,8 +35,15 @@ curl http://127.0.0.1:8000/transaction/0xf61c08a876e6c04aa24de03b381ffbf7bd36ca9
 ```
 ---
 ## System design
+
 ### DB
-![alt text](https://github.com/x24870/0xassignment/docs/db.jpg "db")
+
+![alt text](https://github.com/x24870/0xassignment/blob/master/docs/db.jpg)
+
 ### Workflow
-![alt text](https://github.com/x24870/0xassignment/docs/workflow.jpg "workflow")
+
+![alt text](https://raw.githubusercontent.com/x24870/0xassignment/master/docs/workflow.jpg)
+
+
+
 
