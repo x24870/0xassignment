@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.receipts
 -- Table: public.transaction_logs
 CREATE TABLE IF NOT EXISTS public.transaction_logs
 (
-    tx_hash   VARCHAR(255) UNIQUE NOT NULL REFERENCES public.receipts (tx_hash) ON DELETE CASCADE,
+    tx_hash   VARCHAR(255) NOT NULL REFERENCES public.receipts (tx_hash) ON DELETE CASCADE,
     log_index BIGINT,
     data      bytea,
     
