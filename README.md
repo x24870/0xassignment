@@ -20,6 +20,11 @@ Please copy your Infura API endpoints and paste to **local_dev/localrc**
 export INFURA_ENDPOINT=YOUR_INFURA_ENDPOINT
 export INFURA_WS_ENDPOINT=YOUR_INFURA_WS_ENDPOINT
 ```
+### Environment
+Increase fd limit in case the socket limited by the max fd limitation
+```
+$ulimit -n 2048
+```
 ---
 ## Run
 ```
